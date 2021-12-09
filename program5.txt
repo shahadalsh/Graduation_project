@@ -1,0 +1,121 @@
+
+#import os
+import numpy as np
+#from numpy import loadtxt
+#from tensorflow.keras.models import Sequential
+#from tensorflow.keras.layers import Dense
+import pandas as pd
+from tensorflow.keras import layers as l
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import tensorflow.keras as k
+
+tf.config.run_functions_eagerly(True)
+
+path= "/Users/shahrasm/Documents/Graduation_project"
+modelpath=path+"bestmodel"
+#path="D:/hprecovery/SEM 431/Graduation-Project/"
+col=range(71)
+train_data = pd.read_csv(path+'train_data.csv',names=col)#, delimiter=',')
+Xtr = train_data.loc[:,1:]
+ytr = train_data.loc[:,0]
+
+
+
+test_data = pd.read_csv(path+'test_data.csv',names=col)
+Xts = test_data.loc[:,1:]
+yts = test_data.loc[:,0]
+
+
+tr=[]
+for c in range(1,71):
+    e=Xtr[c]
+    meanc=np.mean(e) 
+    varc=np.var(e) 
+    normalize=l.Normalization(mean=meanc,variance=varc)
+    e=normalize(e)
+    tr.append(e)
+
+
+ts=[]
+for c in range(1,71):
+    e=Xts[c]
+    meanc=np.mean(e) 
+    varc=np.var(e) 
+    normalize=l.Normalization(mean=meanc,variance=varc)
+    e=normalize(e)
+    ts.append(e)
+    
+Xtr=np.array(tr)
+Xtr=np.transpose(Xtr)
+Xts=np.array(ts)
+Xts=np.transpose(Xts)
+
+reg12=tf.keras.regularizers.l1_l2()
+reg12=tf.keras.regularizers.l2()
+#callback=k.callbacks.EarlyStopping(monitor="val_binary_accuracy", baseline=79., patience=250, verbose=1, restore_best_weights=True)
+callback=k.callbacks.ModelCheckpoint(filepath=modelpath,save_weights_only=True,monitor='val_binary_accuracy',mode='max',save_best_only=True)
+
+myins = []
+for c in range(1,71):
+  d=l.Input(shape=(1,), dtype=tf.float32) 
+  myins.append(d) 
+
+r0=l.Lambda(lambda x:l.concatenate(x))(myins)
+r=l.Reshape((1,70))(r0)
+
+
+Project=l.Dense(1024, activation='linear',activity_regularizer=reg12)    
+
+key=Project(r)
+val=Project(r)
+query=Project(r)
+vk=l.Attention()([key,val])
+vkq=l.Concatenate()([vk,query])
+
+r=l.Dropout(0.25)(vkq)
+
+fc=l.Dense(512, activation='linear',activity_regularizer=reg12)(r)
+fc=l.Dropout(0.25)(fc)
+fc=l.Dense(128, activation='linear',activity_regularizer=reg12)(fc)
+fc=l.Dropout(0.25)(fc)
+fc=l.Dense(64, activation='linear',activity_regularizer=reg12)(fc)
+fc=l.Dropout(0.25)(fc)
+pre=l.Dense(1, activation='sigmoid',activity_regularizer=reg12)(fc)
+model = k.Model(inputs=r0, outputs=pre)
+
+opt=k.optimizers.Adam(lr=1e-3)
+metric= [k.metrics.BinaryAccuracy()]  
+#optimizer = Adam(learning_rate=0.001)
+model.compile(loss='binary_crossentropy',  optimizer=opt  , metrics=metric)
+history=model.fit(Xtr, ytr, validation_split=0.10, epochs=350, batch_size=64,callbacks=[callback])
+
+
+_,accuracy = model.evaluate(Xts,yts)
+print('Accuracy: %.2f' % (accuracy*100))
+
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['Train', 'Validation'], loc='upper left')
+plt.show()
+
+plt.plot(history.history["binary_accuracy"])
+plt.plot(history.history['val_binary_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'test'], loc='upper left')
+plt.show()
+
+
+pred = ((model.predict(Xts)).squeeze() > 0.5).ravel().astype(np.int)
+
+
+
+
+for i in range(5):
+	print(pred[i],"==>", yts[i])
+    
